@@ -1,0 +1,23 @@
+* Estudos Rust 2024
+
+/PTBR/
+
+Estou estudando Rust, por enquanto com [[https://pragprog.com/titles/hwrust/hands-on-rust/][esse livro aqui]]. Pra fins de compromisso vou +tentar+ registrar o progresso nesse repositório aqui.
+
+Além de fazer um tempo que estou afim de dar uma olhada em Rust, acabo passando por vários assuntos laterais. Por exemplo, tô curtindo explorar o suporte à [[https://cachestocaches.com/2018/6/org-literate-programming/][/literacy code/]] do Org Mode no Emacs. E para o primeiro exercício, ~03_treeHouse~, acabei explorando os [[https://asciinema.org/][~asciinema~]] e [[https://github.com/asciinema/agg][~agg~]] para "gravar" e fazer gifs do terminal, além de fazer diagramas com o [[https://github.com/mermaid-js/mermaid-cli][/mermaid-cli/]] que sempre quis entender melhor. Curtindo =] ! Por ora é isso.
+
+** NAQ (Never Asked Questions)
+
+*** Então tu é o bonzão de Rust!?
+
+Não, muito pelo o contrário. Fiquei um tempão pra descobrir como comparar uma ~String~ com uma ~str~ e provavelmente estou fazendo de um jeito ruim 😒. Comecei agora com Rust (jan 2024) e esse livro, /Hands-on Rust - Effective Learning through 2D Game Development and Play/ é bem prático, normalmente prefiro os que aprofundam nos conceitos. Cheguei a lei o [[https://doc.rust-lang.org/book/][The Rust Programming Language]] no passado, mas daí rolou o contrário: pouca coisa pra começar a praticar.
+
+De qualquer forma, esperem por imprecisões e/ou erros. Se notar algo errado, considere me avisar da forma que achar melhor.
+
+*** Por que o primeiro exercício é o 03?
+
+Estou seguindo na ordem do livro e os exercícios de 00 à 02 eram sobre instalar a toolchain, entender o gerenciador Cargo...então nem tinha porque subir aqui.
+
+*** Pra que esse trabalho?
+
+Não sei. Mas estou com objetivo de registrarmeus estudos e começarausar,rpavaler o Org Roam. Então acho que esse repositório é um bom primeiro passo.
