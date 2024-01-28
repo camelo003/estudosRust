@@ -1,0 +1,372 @@
+* flappy_dragon
+
+Mais um exercício do Hands-on Rust. Esse aqui usa a biblioteca [[https://github.com/amethyst/bracket-lib][bracket-lib]] que tem um monte de funcionalidade pra roguelike e emula um terminalzinho. O jogo é um clone simples de Flappy Bird e foibem legal de fazer! Apesar de não terfeito de forma linear, vou comentar /linearmente/ e focando nas partes interessantes de Rust.
+
+[[./flappy.gif]]
+
+A começar pela forma de adicionar a biblioteca. Quando você cria um novo projeto com ~cargo new novo-projeto~ ela já cria um hello world numa estrutura de pastas bem conveniente e um arquivo ~Cargo.toml~ que vem assim:
+
+#+BEGIN_SRC toml
+[package]
+name = "flappu_dragon"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+#+END_SRC
+
+Pra adicionar a biblioteca foi só acrescentar ~bracket-lib = "~0.8.1"~ em baixo de ~[dependencies]~ e pronto! Da próxima vez que compilar o seu programa com ~cargo run~ ele já baixa tudo que precisae deixa organizadinho nas patas do projeto. Bem legal, apesar de eu ter ficado surpreso com a quantidade de sub-dependências. Fora que pra algumas eu precisei baixar alguns pacotes promeu sistema operacional. tipo CMake que ainda não tinha no meu computador.
+
+Aliás, o próprio jeito de escrever a dependência no arquivo ~Cargo.toml~ representa algumas coisas. Por exemplo, o ~ em ~"~0.8.1"~ quer dizer que o gerenciador de dependências pode baixar uma versão acima desde que sem quebras de compatibilidade com a 0.8.1; Algo pra [[https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html][estar atento]].
+
+O autor do livro, Herbert Wolverson, chegou a publicar um artigo sobre o [[https://medium.com/pragmatic-programmers/flappy-dragon-rust-647e91a34dd4][projetinho desse exercício]], então vou comentar minimamente minha versão que está levemente diferente.
+
+Como o projeto é um jogo, vale a pena falar de algo que acho que é pouco falado em tutoriais de programação pra jogos: a ideia de *máquina de estados finitos* (finite state machine em inglês, as vezes abreviado pra FSM). Basicamente é um jeito, muito útil, de descrever sistemas que podem assumir diferentes estados previstos, mas sempre um de cada vez; além de todas as transições possiveis entre eles. Isso é usado pra um monte de coisa. Por exemplo, o comportamento de um inimigo pode ser /andando/, /correndo/, ou /pulando/, mas ele só pode correr se estiver andando e só pode pular se estiver correndo.
+
+Pra esse projetinho são estados do próprio jogo: ~Menu~, para o menu inicial, ~Playing~, pra parte do jogo rolando e ~End~ pra tela de game over. Isso ajuda porque você pode separar o que precisa acontecer em cada +momento+ estado do jogo. As transições entre os estados também é algo importante de se ter claro. No caso, do menu inicial será possível ir pro jogo. Do jogo você pode ir pro game over (quando perder). E na tela de game over pode escolher jogar de novo ou sair. No gráfico dá pra ver bem:
+
+[[./states.png]]
+
+Uma coisa que tenho notado sobre programar em Rust é que é /fortemente/ baseado em *structs*. Blocos ~struct~ e ~impl~ (funções de um ~struct~) parecem dar conta pelo menos do básico de orientação à objetos e estou achando isso ótimo 😅. Aqui um diagrama de como ficaram as structs desse programinha:
+
+[[./structs.png]]
+
+Agora sim o código comentado trecho a trecho:
+
+#+BEGIN_SRC rust
+use bracket_lib::prelude::*;
+#+END_SRC
+
+Ainda não fiz nenhum programa dividido em mais de um um arquivo de código fonte (fora dependências), mas já gostei do esquema de /namespaces/. Combinado com o padrão de expor somente o necessário em um "prelude", fica fácil saber o que é o que.
+
+#+BEGIN_SRC rust
+enum GameMode {
+	Menu,
+	Playing,
+	End,
+}
+#+END_SRC
+
+Aqui a definição do ~enum~ que vai guardar o estado em que o jogo se encontra.  
+
+#+BEGIN_SRC rust
+const SCREEN_WIDTH : i32 = 80;
+const SCREEN_HEIGHT : i32 = 50;
+const FRAME_DURATION : f32 = 1000.0 / 24.0;
+#+END_SRC
+
+Aqui umas constantes pra evitar espalhar números mágicos pelo código. A janela/terminal onde o jogo vai rodar terá um tamanho padrão de 80x50, mas mesmo assim vale registrar em constantes. E o próprio compilador sugere que se use CAIXA ALTA para constantes =] .
+
+#+BEGIN_SRC rust
+struct Player {
+	x: i32,
+	y: i32,
+	velocity: f32,
+}
+
+impl Player {
+	fn new(x: i32, y: i32) -> Self {
+		Self {
+			x,
+			y,
+			velocity: 0.0,
+		}
+	}
+	fn render(&mut self, ctx: &mut BTerm) {
+		if self.velocity < -1.0 {
+			ctx.set(self.x - 1, self.y - 1, YELLOW, NAVY, to_cp437('_'));
+			ctx.set(self.x - 2, self.y - 1, YELLOW, NAVY, to_cp437('_'));
+		}else{
+			ctx.set(self.x - 1, self.y - 2, YELLOW, NAVY, to_cp437('\\'));
+			ctx.set(self.x, self.y - 1, YELLOW, NAVY, to_cp437('\\'));
+		}
+		ctx.set(self.x + 1, self.y - 1, YELLOW, NAVY, to_cp437('0'));
+		ctx.set(self.x + 2, self.y - 1, YELLOW, NAVY, to_cp437('>'));
+		ctx.set(self.x - 1, self.y, YELLOW, NAVY, to_cp437('/'));
+		ctx.set(self.x, self.y, YELLOW, NAVY, to_cp437(')'));
+		ctx.set(self.x - 1, self.y + 1, YELLOW, NAVY, to_cp437('"'));
+		ctx.set(self.x - 2, self.y + 1, YELLOW, NAVY, to_cp437('"'));
+	}
+	fn gravity_and_move(&mut self) {
+		if self.velocity < 2.0 {
+			self.velocity += 0.2;
+		}
+		self.y += self.velocity as i32;
+		self.x += 1;
+		self.x = self.x % SCREEN_WIDTH;
+		if self.y < 0 {
+			self.y = 0;
+		}
+	}
+	fn flap(&mut self) {
+		self.velocity = -2.0;
+	}
+}
+#+END_SRC
+
+Struct e funções (métodos?) do player. Com os seguintes campos:
+
+- ~x~, do tipo inteiro de 32 bit, para guardar  aposição horizontal do jogador;
+- ~y~, também inteiro 32, para a posição vertical;
+- ~velocity~, um float de 32 bits, pra controlar o deslocamento vertical (gravidade e lufadas);
+
+E os métodos:
+
+- ~new()~, retorna um ~Player~ (dentro do bloco ~impl Player~ pode se escrever apenas ~Self~);
+- ~render()~ pra desenhar / escrever o jogador na tela. Pra conseguir desenhar precisa receber uma referência da "tela" ~BTerm~. Usei um monte de caractere pra deixar o passarinho bonitinho =] ;
+- ~gravity_and_move()~ pra incrementar a posição horizontal de forma constante e linear (módulo pra mandar de volta ao começo quando sair da tela) e alterando a posição vertical de acordo com o campo ~velocity~, além de limitando a gravidade ;
+- ~flap()~ altera o campo ~velocity~ pra 2.0, o que faz o passarinho dar um 'salto' pra cima.
+
+#+BEGIN_SRC rust
+struct Obstacle {
+	x: i32,
+	gap_y: i32,
+	size: i32,
+}
+
+impl Obstacle {
+	fn new (x: i32, score: i32) -> Self {
+		let mut random = RandomNumberGenerator::new();
+		Self {
+			x,
+			gap_y: random.range(10,40),
+			size: i32::max(2, 20 - score),
+		}
+	}
+	fn render (&self, ctx: &mut BTerm) {
+		for y in 0..self.gap_y - self.size / 2 {
+			ctx.print_color(self.x - 1, y, RED, NAVY, "###");
+		}
+		for y in (self.gap_y + self.size / 2)..SCREEN_HEIGHT {
+			ctx.print_color(self.x - 1, y, RED, NAVY, "###");
+		}
+	}
+	fn hit_obstacle (&self, player: &Player) -> bool {
+		self.x == player.x && i32::abs(self.gap_y - player.y) > self.size/ 2
+	}
+}
+#+END_SRC
+
+Definição do "objeto" ~Obstacle~. Campos:
+
+- ~x~, inteiro de 32 bits, posição horizontal do obstáculo na tela;
+- ~gap_y~, também inteiro de 32, com a posição vertical da brecha no obstáculo;
+- ~size~, mesmo tipo, com a largura da brecha.
+
+E os métodos:
+
+- ~new()~, contructor, isso é, cria um obstáculo, retornando um próprio ~Obstacle~;
+- ~render()~, pra desenhar o obstáculo na tela;
+- ~hit_osbstacle()~ recebe uma referênciado jogador pra checar de ele colidiu com obstáculo. Essa verificação ficou meio feia, linha muito comprida, mas dentro do meu limite (coluna 80, haha). Como não precisa usar return em Rust, a última expressão de uma função /sem/ o terminaldor ~;~. A linha ~self.x == player.x && i32::abs(self.gap_y - player.y) > self.size/ 2~ pode ser lida como /"se a posição horizontal do obstáculo for a mesma do jogador E a diferença entre a posição vertical do jogador e a brecha do obstáculon é maior que metade da largura da brecha"/ (isso porque o valor ~gap_y~ marca o meio da brecha, então temos metade da largura pra cima e metade pra baixo). Reparem que pra pegar o valor absoluto (positivo) da diferença usei afunção ~abs()~ que está no /namespace/ dotipo ~i32~, acessado com o operador ~::~ =] .
+
+#+BEGIN_SRC rust
+struct State {
+	player: Player,
+	frame_time: f32,
+	mode: GameMode,
+	score: i32,
+	obstacles: Vec<Obstacle>,
+}
+
+impl State {
+	fn new() -> Self {
+		Self {
+			player: Player::new(5, 25),
+			frame_time: 0.0,
+			mode: GameMode::Menu,
+			score: 0,
+			obstacles: vec![Obstacle::new(SCREEN_WIDTH / 2, 0)],
+		}
+	}
+	fn play(&mut self, ctx: &mut BTerm) {
+		ctx.cls_bg(NAVY);
+		self.frame_time += ctx.frame_time_ms;
+		if self.frame_time > FRAME_DURATION {
+			self.frame_time = 0.0;
+			self.player.gravity_and_move();
+			if self.player.x == 0 {
+				self.score+=1;
+				self.place_obstacles();
+			}
+		}
+		if let Some(VirtualKeyCode::Space) = ctx.key {
+			self.player.flap();
+		}
+		for i in 0..self.obstacles.len() {
+			self.obstacles[i].render(ctx);
+		}
+		self.player.render(ctx);
+		ctx.print(0, 0,"Press SPACE: to fly.");
+		ctx.print(0, 1,format!("Score: {}", self.score));
+		for i in 0..self.obstacles.len() {
+			if self.obstacles[i].x < self.player.x {
+				continue;
+			}
+			if self.obstacles[i].hit_obstacle(&self.player) {
+				self.mode = GameMode::End;
+			}
+		}
+		if self.player.y > SCREEN_HEIGHT {
+			self.mode = GameMode::End;
+		}
+	}
+	fn restart(&mut self) {
+		self.player = Player::new(5, 25);
+		self.frame_time = 0.0;
+		for _i in 0..self.obstacles.len() {
+			self.obstacles.pop();
+		}
+		self.obstacles.push(Obstacle::new(SCREEN_WIDTH / 2, 0));
+		self.score = 0;
+		self.mode = GameMode::Playing;
+	}
+	fn main_menu(&mut self, ctx: &mut BTerm) {
+		ctx.cls();
+		ctx.print_centered(5, "Welcometo Flappy Dragon!");
+		ctx.print_centered(8, "(P) Play Game");
+		ctx.print_centered(9, "(Q) Quit Game");
+		if let Some(key) = ctx.key {
+			match key {
+				VirtualKeyCode::P => self.restart(),
+				VirtualKeyCode::Q => ctx.quitting = true,
+				_ => {},
+			}
+		}
+	}
+	fn dead(&mut self, ctx: &mut BTerm) {
+		ctx.cls();
+		ctx.print_centered(5, "You are dead!");
+		ctx.print_centered(8, format!("Your score: {}", self.score));
+		ctx.print_centered(11, "(P) Play Game");
+		ctx.print_centered(12, "(Q) Quit Game");
+		if let Some(key) = ctx.key {
+			match key {
+				VirtualKeyCode::P => self.restart(),
+				VirtualKeyCode::Q => ctx.quitting = true,
+				_ => {},
+			}
+		}
+	}
+	fn place_obstacles(&mut self) {
+		const CHANCES: [i32; 12] = [1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4];
+		let mut random_gen = RandomNumberGenerator::new();
+		let random_num: i32;
+		let obstacles_num: i32;
+		let interval: i32;
+
+		for _i in 0..self.obstacles.len() {
+			self.obstacles.pop();
+		}
+		random_num = random_gen.range(0, 12);
+		obstacles_num = CHANCES[random_num as usize];
+		interval = SCREEN_WIDTH / (obstacles_num + 1);
+		for i in 1..=obstacles_num {
+			self.obstacles.push(Obstacle::new(interval * i, self.score));
+		}
+	}
+}
+#+END_SRC
+
+Finalmente, o struct que guarda o estado do jogo contendo:
+
+- ~player~, uma instância do tipo ~Player~;
+- ~frame_time~, um float de 32 bits pra contar o tempo e assim controlar o framerate do jogo;
+- ~mode~, um enum ~GameMode~ pra guardar o estado atual do jogo,;
+- ~score~, mais um inteiro de 32 bits (i32) pra guardar a pontuação;
+- ~obstacles~ um /vetor de ~Obstacle~/, pra abrigar diferentes quantidades de obstáculos.
+
+E os métodos:
+
+- ~new()~, contructor, retorna um novo ~State~;
+- ~play()~, o loop que controla o que acontece no jogo enquanto este estiver no estado ~GameMode::Playing~. Essa é a maior função porque nela está o loop que controla o coraçãodojogo, então vale a pena descrever o que ela está fazendo. Basicamente:
+  1. Limpa a tela com o método ~.cls_bg()~, nativo do objeto ~BTerm~, recebido comoreferência pela função ~play()~ e proprio da biblioteca /bracket-lib/;
+  2. Incrementa o valor do próprio campo ~frame_time~ com a difereça de tempo entre o último loop e o atual, através do campo ~.frame_time_ms~, também do objeto ~BTerm~ recebido;
+  3. Checa se o tempo transcorrido e acumulado no próprio campo ~frame_time~ é maior do que a duração, em milisegundos, definida na constante ~FRAME_DURATION~. Isso garante que algumas coisas aconteçam apenas 24 vezes por segundo (influência da gravidade no jogador, e checagem se o jogador atravessou a tela para incrementar a pontuação e atualizar os obstáculos, além de zerar o tempo acumulado);
+  4. Verifica se a tecla /espaço/ foi apertada. Se sim, executa o método ~flap()~ do jogador. Aqui vale a pena falar sobre essa notação ~if let~:
+
+  Pelo o que li, pra evitar ter o /nulo/ na linguagem, os designers de Rust decidiram por essa abordagem que achei muito legal. Coisas que podem ou não conter algo retornam um ~enum~ chamado *Option*. Enum são definições de um algo que pode ser apenas um de uma coleção possíveis. Tipo o ~GameMode~ que pode ser ~Menu~, ~Playing~, ou ~Playing~. No caso a definição do Option seria essa aqui:
+
+#+BEGIN_SRC rust
+enum Option<T> {
+    None,
+    Some(T),
+}
+#+END_SRC
+
+  Em apenas 4 linhas tem bastante novidade, pelo menos pra mim. Essa é a definição de um enum de nome ~Option~, igual outras definições de enums que vimos. ~<T>~ indica que esse enum lida com /tipos genéricos/, isso é, lida com mais de um tipo. Nenhuma surpresa em ~None~, é só mais uma variante do enum. Agora o que é ~Some(T)~? Em rust, cada variante pode conter data. No exercicio da casa daárvore cheguei a fazer um enum "Dieta" pra guardar o tipo de alimentação de cada membro do grupo. Esse enum tinha 4 variantes: carnívoro, onívoro, vegano ou alérgico. Para as três primeiras variantes, tudo certo. Mas pra /alérgico/ valia a pena que ela guardasse a informação /do quê/ aquele membro era alérgico. Variantes de enum podem guardar dados /nomeados/, como num struct (~Allergic {food: String}~), ou /não-nomeados/ em algo que chamam de "tuple-struct". ~Some(T)~ é um dado do /tipo genérico T/ guardado dentro da variante /Some/.
+
+  /E pra que tudo isso!?/ Como disse, pra funções onde coisas inesperadas podem acontecer a convenção é retornar uma /"opção"/. Assim a linguagem Rustnos dá várias formas de trabalhar com essa opção. Caso elatenha retornado /algo/ que estávamos esperando, ou não tiver retornado /nada/: (~Some~ e ~None~).
+
+  Pra acessar esse(s) dado(s) que /podem estar/ dentro de uma variável de um enum, é possível usar um bloco ~match~:
+
+#+BEGIN_SRC rust
+match opt {
+	Some(x) => {
+		// realmente tem algo nessa Option
+		// fazer algo com 'x'
+	}
+	None => {
+		// essa Option não contem nada, mas o
+		// programa não precisa travar por isso
+		// posso fazer algo a respeito nesse bloco
+	}
+}
+#+END_SRC
+
+  A notação ~if let~ pode funcionar como um bloco ~match~ abreviado. Seguida de uma atribuição ~x = y~ ela executa o bloco seguinte */se/* y /desestruturar/ para x. Dá pra entender como uma checagem de padrão: se y está no mesmo padrão de x, execute o bloco a seguir. Na linha:
+
+#+BEGIN_SRC rust
+if let Some(VirtualKeyCode::Space) = ctx.key
+#+END_SRC
+
+  o que ele está checando é /ctx.key é uma variante ~Some~ com a tecla espaço dentro?/ Se for o caso ele vai chamar a função ~flappy()~. Lembrando que o campo ~.key~ e o valor ~Space~ dentro do /namespace/ ~VirtualKeyCode~ são próprios da biblioteca bracket-lib. Se isso foimuito confuso (e provavelmente foi), vale a pena ler sobre [[https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html][enums]], [[https://doc.rust-lang.org/std/option/enum.Option.html][Option]], [[https://doc.rust-lang.org/rust-by-example/flow_control/if_let.html][if let]] e [[https://google.github.io/comprehensive-rust/tuples-and-arrays/destructuring.html][destructuring]].
+
+  5. Desenha na tela /todos/ os obstáculos, o jogador e escreve a pontuação no canto da tela.
+  6. Checagem pra ver se o jogador colidiu com algum obstáculo, ou na parte de baixo da tela. Se sim, altera o estado do jogo pra ~End~.
+
+- ~restart()~, é a função que reinicia os valores do jogo;
+- ~main_menu()~, função que roda em loop enquanto o jogo estiver no estado ~GameMode:Menu~. O que ela faz é esperar pela ação de iniciarou sair do jogo. Repare que o bloco ~if let~ captura a tecla (caso a checagem de padrão seja efetuada) e depois as opções de entradas possíveis são feitas num bloco ~match~;
+- ~dead()~, função pra ser chamada em loop quando o jogo estiver no modo ~GameMode::End~. Também aguarda entrada, dando opção pro jogo reiniciar (voltar pro estado ~Playing~, ou sair);
+- ~place_obstacles()~, essa função zera e depois redistribui uma quantidade aleatória de obstáculos. Pra fazer com que a chances de 1 ou 4 obstáculos fossem menores que 2 ou 3, acabei fazendo uma gambiarra. Destribui uma série de 1's, 2's, 3's e 4's num array de 12 elementos, seguindo de acordo com a probabilidade que queria. Depois gerei um número aleatório de 0 à 11 e defini a quantidade de obstáculos de acordo com o valor no índice do número aleatório 😳. Não me orgulho, mas resolveu (por favor me digam um jeito mais elegante de atingir o memso resultado).
+
+#+BEGIN_SRC rust
+impl GameState for State {
+	fn tick (&mut self, ctx: &mut BTerm) {
+		match self.mode {
+			GameMode::Menu => self.main_menu(ctx),
+			GameMode::End => self.dead(ctx),
+			GameMode::Playing => self.play(ctx),
+		}
+	}
+}
+#+END_SRC
+
+Aqui é um exemplo simples de /trait/. Acho que ajuda a entender se traduzimos o nome pra /traço/ ou /característica/. Não vejo de orientação a objetos, mas acho que é um forma de lidar com polimorfismo: fazer com que determinados structs possam ter determinados campo ou métodos definidos para que então possam ser utilizados em contextos em que se esperam tais campos/métodos.
+
+Pode-se ler ~impl GameState for State~ como /segue implementação da característica ~GameState~ no struct ~State~/. A característica no caso é uma função ~tick()~ que recebe uma referência mutável da janela e associa os métodos ~main_menu()~, ~dead()~ e ~play()~ para serem chamadas em loop respectivamente durante os estados ~Menu~, ~End~ e ~Playing~
+
+Os nomes ~GameState~ e ~tick~ são esperados pela biblioteca em seu funcionamento interno.
+
+#+BEGIN_SRC rust
+fn main() -> BError {
+	let context = BTermBuilder::simple80x50()
+		.with_title("Flappy Dragon").
+		build()?;
+	main_loop(context, State::new())
+}
+#+END_SRC
+
+Finalmente a função ~main()~, ponto de entrada na execução do programa, faz apenas duas coisas:
+
+1. Cria um /"contexto"/ onde o jogo vai acontecer,o que na prática é uma janelinha emulando um terminal do tipo ~BTerm~.
+
+2. Inicia o /game loop/, passando o contexto recém criado e uma nova instância do 'objeto' ~State~.
+
+Dois detalhes Rústicos (?): o primeiro é que o contexto é criado com uma sequência de métodos (do namespace ~BTermBuilder~) encadeados que definem o tipo, tamanho e título de janela que será criada e que finalmente é criado com o método final ~.build()~. No livro fala que isso é conhecido como [[https://refactoring.guru/design-patterns/builder/rust/example][/builder pattern/]] e é algo comum em Rust.
+
+O outro detalhe é que a função ~main()~ retorna algo do tipo ~BError~. Esse é um tipo definido pela biblioteca bracket-lib. Ao /constuir/ o contexto/janela/terminal onde o jogo vai acontecer a biblioteca está trabalhando em baixo do capô, pedindo pro sistema operacional os recursos necessários pra que se possa fazer o que pretendemos fazer. Como isso é algo que pode dar errado o padrão em Rust é retornar um ~Result~. Parecido com ~Option~, ~Result~ é um enum, desenhado pra que possamos tratar melhor eventuais erros. Um jeito de fazer isso seria um bloco ~match~. Também seria possível usar o método ~.unwrap()~ para acessar o que tiver dentro desse ~Result~. Mas se por acaso o que estivesse dentro fosse um erro o programa travaria (!!!). No caso, foi usado um terceiro tratamento possível que é colocar um ~?~ no final da função que retorna o ~Result~. No caso de erro isso faz com que a função onde função que retorna o ~Result~ está sendo chamada (nesse caso a função ~main()~) retorne o erro e por isso que ~main()~ precisa ser do tipo ~BError~, que é o tipo de erro que viria dentro do ~Result~ retornado pelo ~BTermBuilder~ caso algo desse errado.
+
+E para esse projeto é isso =] . Ficou um pouco longo e talvez um pouco confuso, mas fico à disposição para dúvidas ou qualquer outro tipo de pergunta.E claro,se notar algo /obscenamente/ errado, por favor avise 😱 ! Obrigado!
