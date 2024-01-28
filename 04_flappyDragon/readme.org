@@ -287,42 +287,42 @@ E os métodos:
   3. Checa se o tempo transcorrido e acumulado no próprio campo ~frame_time~ é maior do que a duração, em milisegundos, definida na constante ~FRAME_DURATION~. Isso garante que algumas coisas aconteçam apenas 24 vezes por segundo (influência da gravidade no jogador, e checagem se o jogador atravessou a tela para incrementar a pontuação e atualizar os obstáculos, além de zerar o tempo acumulado);
   4. Verifica se a tecla /espaço/ foi apertada. Se sim, executa o método ~flap()~ do jogador. Aqui vale a pena falar sobre essa notação ~if let~:
 
-  Pelo o que li, pra evitar ter o /nulo/ na linguagem, os designers de Rust decidiram por essa abordagem que achei muito legal. Coisas que podem ou não conter algo retornam um ~enum~ chamado *Option*. Enum são definições de um algo que pode ser apenas um de uma coleção possíveis. Tipo o ~GameMode~ que pode ser ~Menu~, ~Playing~, ou ~Playing~. No caso a definição do Option seria essa aqui:
+	 Pelo o que li, pra evitar ter o /nulo/ na linguagem, os designers de Rust decidiram por essa abordagem que achei muito legal. Coisas que podem ou não conter algo retornam um ~enum~ chamado *Option*. Enum são definições de um algo que pode ser apenas um de uma coleção possíveis. Tipo o ~GameMode~ que pode ser ~Menu~, ~Playing~, ou ~Playing~. No caso a definição do Option seria essa aqui:
 
-#+BEGIN_SRC rust
-enum Option<T> {
-    None,
-    Some(T),
-}
-#+END_SRC
+	 #+BEGIN_SRC rust
+	 enum Option<T> {
+	     None,
+	     Some(T),
+	 }
+	 #+END_SRC
 
-  Em apenas 4 linhas tem bastante novidade, pelo menos pra mim. Essa é a definição de um enum de nome ~Option~, igual outras definições de enums que vimos. ~<T>~ indica que esse enum lida com /tipos genéricos/, isso é, lida com mais de um tipo. Nenhuma surpresa em ~None~, é só mais uma variante do enum. Agora o que é ~Some(T)~? Em rust, cada variante pode conter data. No exercicio da casa daárvore cheguei a fazer um enum "Dieta" pra guardar o tipo de alimentação de cada membro do grupo. Esse enum tinha 4 variantes: carnívoro, onívoro, vegano ou alérgico. Para as três primeiras variantes, tudo certo. Mas pra /alérgico/ valia a pena que ela guardasse a informação /do quê/ aquele membro era alérgico. Variantes de enum podem guardar dados /nomeados/, como num struct (~Allergic {food: String}~), ou /não-nomeados/ em algo que chamam de "tuple-struct". ~Some(T)~ é um dado do /tipo genérico T/ guardado dentro da variante /Some/.
+	 Em apenas 4 linhas tem bastante novidade, pelo menos pra mim. Essa é a definição de um enum de nome ~Option~, igual outras definições de enums que vimos. ~<T>~ indica que esse enum lida com /tipos genéricos/, isso é, lida com mais de um tipo. Nenhuma surpresa em ~None~, é só mais uma variante do enum. Agora o que é ~Some(T)~? Em rust, cada variante pode conter data. No exercicio da casa daárvore cheguei a fazer um enum "Dieta" pra guardar o tipo de alimentação de cada membro do grupo. Esse enum tinha 4 variantes: carnívoro, onívoro, vegano ou alérgico. Para as três primeiras variantes, tudo certo. Mas pra /alérgico/ valia a pena que ela guardasse a informação /do quê/ aquele membro era alérgico. Variantes de enum podem guardar dados /nomeados/, como num struct (~Allergic {food: String}~), ou /não-nomeados/ em algo que chamam de "tuple-struct". ~Some(T)~ é um dado do /tipo genérico T/ guardado dentro da variante /Some/.
 
-  /E pra que tudo isso!?/ Como disse, pra funções onde coisas inesperadas podem acontecer a convenção é retornar uma /"opção"/. Assim a linguagem Rustnos dá várias formas de trabalhar com essa opção. Caso elatenha retornado /algo/ que estávamos esperando, ou não tiver retornado /nada/: (~Some~ e ~None~).
+	 /E pra que tudo isso!?/ Como disse, pra funções onde coisas inesperadas podem acontecer a convenção é retornar uma /"opção"/. Assim a linguagem Rustnos dá várias formas de trabalhar com essa opção. Caso elatenha retornado /algo/ que estávamos esperando, ou não tiver retornado /nada/: (~Some~ e ~None~).
 
-  Pra acessar esse(s) dado(s) que /podem estar/ dentro de uma variável de um enum, é possível usar um bloco ~match~:
+	 Pra acessar esse(s) dado(s) que /podem estar/ dentro de uma variável de um enum, é possível usar um bloco ~match~:
 
-#+BEGIN_SRC rust
-match opt {
-	Some(x) => {
-		// realmente tem algo nessa Option
-		// fazer algo com 'x'
-	}
-	None => {
-		// essa Option não contem nada, mas o
-		// programa não precisa travar por isso
-		// posso fazer algo a respeito nesse bloco
-	}
-}
-#+END_SRC
+	 #+BEGIN_SRC rust
+	 match opt {
+	 	Some(x) => {
+	 		// realmente tem algo nessa Option
+	 		// fazer algo com 'x'
+	 	}
+	 	None => {
+	 		// essa Option não contem nada, mas o
+	 		// programa não precisa travar por isso
+	 		// posso fazer algo a respeito nesse bloco
+	 	}
+	 }
+	 #+END_SRC
 
-  A notação ~if let~ pode funcionar como um bloco ~match~ abreviado. Seguida de uma atribuição ~x = y~ ela executa o bloco seguinte */se/* y /desestruturar/ para x. Dá pra entender como uma checagem de padrão: se y está no mesmo padrão de x, execute o bloco a seguir. Na linha:
+	 A notação ~if let~ pode funcionar como um bloco ~match~ abreviado. Seguida de uma atribuição ~x = y~ ela executa o bloco seguinte */se/* y /desestruturar/ para x. Dá pra entender como uma checagem de padrão: se y está no mesmo padrão de x, execute o bloco a seguir. Na linha:
 
-#+BEGIN_SRC rust
-if let Some(VirtualKeyCode::Space) = ctx.key
-#+END_SRC
+	 #+BEGIN_SRC rust
+	 if let Some(VirtualKeyCode::Space) = ctx.key
+	 #+END_SRC
 
-  o que ele está checando é /ctx.key é uma variante ~Some~ com a tecla espaço dentro?/ Se for o caso ele vai chamar a função ~flappy()~. Lembrando que o campo ~.key~ e o valor ~Space~ dentro do /namespace/ ~VirtualKeyCode~ são próprios da biblioteca bracket-lib. Se isso foimuito confuso (e provavelmente foi), vale a pena ler sobre [[https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html][enums]], [[https://doc.rust-lang.org/std/option/enum.Option.html][Option]], [[https://doc.rust-lang.org/rust-by-example/flow_control/if_let.html][if let]] e [[https://google.github.io/comprehensive-rust/tuples-and-arrays/destructuring.html][destructuring]].
+	 o que ele está checando é /ctx.key é uma variante ~Some~ com a tecla espaço dentro?/ Se for o caso ele vai chamar a função ~flappy()~. Lembrando que o campo ~.key~ e o valor ~Space~ dentro do /namespace/ ~VirtualKeyCode~ são próprios da biblioteca bracket-lib. Se isso foimuito confuso (e provavelmente foi), vale a pena ler sobre [[https://doc.rust-lang.org/book/ch06-01-defining-an-enum.html][enums]], [[https://doc.rust-lang.org/std/option/enum.Option.html][Option]], [[https://doc.rust-lang.org/rust-by-example/flow_control/if_let.html][if let]] e [[https://google.github.io/comprehensive-rust/tuples-and-arrays/destructuring.html][destructuring]].
 
   5. Desenha na tela /todos/ os obstáculos, o jogador e escreve a pontuação no canto da tela.
   6. Checagem pra ver se o jogador colidiu com algum obstáculo, ou na parte de baixo da tela. Se sim, altera o estado do jogo pra ~End~.
