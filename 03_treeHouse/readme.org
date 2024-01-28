@@ -10,22 +10,22 @@ O código está meio macarrônico, mas for porque o exercício foi adicionando e
 
 #+NAME: main.rs
 #+BEGIN_SRC rust -n
-	use std::io::stdin;
+use std::io::stdin;
 
-	#[derive(Debug)]
-	enum VisitorDiet {
-			Meat,
-			Oni,
-			Vegan,
-			Allergic {food: String},
-	}
+#[derive(Debug)]
+enum VisitorDiet {
+	Meat,
+	Oni,
+	Vegan,
+	Allergic {food: String},
+}
 
-	#[derive(Debug)]
-	struct Visitor {
-			name: String,
-			greeting: String,
-			diet: VisitorDiet,
-	}
+#[derive(Debug)]
+struct Visitor {
+	name: String,
+	greeting: String,
+	diet: VisitorDiet,
+}
 #+END_SRC
 
 Primeira coisa estranha de Rust: essas macros estranhas. Como dá pra ver [[https://www.youtube.com/watch?v=MWRPYBoCEaY][nesse vídeo aqui]], macros em Rust podem ficar bem complicadas. Mas por ora me contentei com [[https://stackoverflow.com/questions/46388386/what-exactly-does-derivedebug-mean-in-rust][essa explicação aqui]]. Basicamente esse tipo de macro, /derivativa/, antecedendo a definição de um enum ou struct, adiciona um código na hora da compilação que acrescenta funcionalidades para o respectivo enum ou struct. Nesse caso a capacidade de que eles possam ser 'printados' pela macro ~println!()~ quando utilizado o formatador de debug ~"{:?}"~. Precisei colocar essamacro quando passei a usar um vetor para guardar a lista (arrays tem tamanho fixo, mas vetores podem receber novos elementos).
@@ -34,27 +34,27 @@ No mais, essa primeira parte do código é uma definição bem comum de um struc
 
 #+NAME: main.rs
 #+BEGIN_SRC rust -n
-	impl Visitor {
-			fn new(name: &str, greeting: &str, diet: VisitorDiet) -> Self {
-					Self {
-							name: name.to_lowercase(),
-							greeting: greeting.to_lowercase(),
-							diet,
-					}
-			}
-
-			fn greet_visitor(&self) {
-					println!("\n[SEGURANÇA]\n{}", self.greeting);
-					match &self.diet {
-							VisitorDiet::Meat => println!("não deixe de provar a picanha."),
-							VisitorDiet::Oni => println!("peça uma carne com uma salada."),
-							VisitorDiet::Vegan => println!("servimos leite de soja."),
-							VisitorDiet::Allergic { food } => {
-									println!("Vou pedir pra não usarem {}.", food.trim());
-							}
-					}
-			}
+impl Visitor {
+	fn new(name: &str, greeting: &str, diet: VisitorDiet) -> Self {
+		Self {
+			name: name.to_lowercase(),
+			greeting: greeting.to_lowercase(),
+			diet,
+		}
 	}
+
+	fn greet_visitor(&self) {
+		println!("\n[SEGURANÇA]\n{}", self.greeting);
+		match &self.diet {
+			VisitorDiet::Meat => println!("não deixe de provar a picanha."),
+			VisitorDiet::Oni => println!("peça uma carne com uma salada."),
+			VisitorDiet::Vegan => println!("servimos leite de soja."),
+			VisitorDiet::Allergic { food } => {
+				println!("Vou pedir pra não usarem {}.", food.trim());
+			}
+		}
+	}
+}
 #+END_SRC
 
 Outra coisa que reparei: structs podem receber funcionalidade (métodos!). São funções num segundo bloco ~impl~ que podem ou não receber um referência deumainstância daquela estrutura. Ainda não sei se é assim que é feita orientação a objetos em Rust, mas achei legal!
@@ -65,57 +65,54 @@ Mais um detalhe é o block ~match~ que funciona como um ~switch-case~, mas cheio
 
 #+NAME: main.rs
 #+BEGIN_SRC rust -n
-	fn what_is_your_name() -> String {
-			let mut your_name = String::new();
-			println!("[VOCÊ]");
-			stdin().read_line(&mut your_name).expect("\nerro ao ler resposta.\n");
-			your_name.trim().to_lowercase()
-	}
+fn what_is_your_name() -> String {
+	let mut your_name = String::new();
+	println!("[VOCÊ]");
+	stdin().read_line(&mut your_name).expect("\nerro ao ler resposta.\n");
+	your_name.trim().to_lowercase()
+}
 
-	fn first_came() -> Visitor {
-			println!("\n[SEGURANÇA]\nnunca te vi. qual é o seu nome mesmo?");
-			println!("\n[VOCÊ]");
-			let mut new_name = String::new();
-			stdin()
-					.read_line(&mut new_name)
+fn first_came() -> Visitor {
+	println!("\n[SEGURANÇA]\nnunca te vi. qual é o seu nome mesmo?");
+	println!("\n[VOCÊ]");
+	let mut new_name = String::new();
+	stdin().read_line(&mut new_name).expect("erro ao ler resposta.");
+	new_name = new_name.trim().to_lowercase();
+	println!("\n[SEGURANÇA]\ne como gostaria de ser recebido?");
+	println!("\n[VOCÊ]");
+	let mut new_greeting = String::new();
+	stdin().read_line(&mut new_greeting).expect("erro ao ler resposta.");
+	new_greeting = new_greeting.trim().to_lowercase();
+	let mut diet_answer = String::new();
+	let new_diet : VisitorDiet;
+	loop {
+		println!("\n[SEGURANÇA]\npor último, como define sua dieta? responda com:");
+		println!("[1] para carnívora;");
+		println!("[2] para onívora;");
+		println!("[3] para vegana;");
+		println!("[4] se tiver alguma alergia.");
+		println!("\n[VOCÊ]");
+		stdin().read_line(&mut diet_answer).expect("erro ao ler resposta.");
+		match diet_answer.trim() {
+			"1" => {new_diet = VisitorDiet::Meat; break;},
+			"2" => {new_diet = VisitorDiet::Oni; break;},
+			"3" => {new_diet = VisitorDiet::Vegan; break;},
+			"4" => {
+				let mut new_food = String::new();
+				println!("\n[SEGURANÇA]\ntem alergia de que!?.");
+				println!("\n[VOCÊ]");
+				stdin()
+					.read_line(&mut new_food)
 					.expect("erro ao ler resposta.");
-			new_name = new_name.trim().to_lowercase();
-			println!("\n[SEGURANÇA]\ne como gostaria de ser recebido?");
-			println!("\n[VOCÊ]");
-			let mut new_greeting = String::new();
-			stdin()
-					.read_line(&mut new_greeting)
-					.expect("erro ao ler resposta.");
-			new_greeting = new_greeting.trim().to_lowercase();
-			let mut diet_answer = String::new();
-			let new_diet : VisitorDiet;
-			loop {
-					println!("\n[SEGURANÇA]\npor último, como define sua dieta? responda com:");
-					println!("[1] para carnívora;");
-					println!("[2] para onívora;");
-					println!("[3] para vegana;");
-					println!("[4] se tiver alguma alergia.");
-					println!("\n[VOCÊ]");
-					stdin().read_line(&mut diet_answer).expect("erro ao ler resposta.");
-					match diet_answer.trim() {
-							"1" => {new_diet = VisitorDiet::Meat; break;},
-							"2" => {new_diet = VisitorDiet::Oni; break;},
-							"3" => {new_diet = VisitorDiet::Vegan; break;},
-							"4" => {
-									let mut new_food = String::new();
-									println!("\n[SEGURANÇA]\ntem alergia de que!?.");
-									println!("\n[VOCÊ]");
-									stdin().read_line(&mut new_food)
-											.expect("erro ao ler resposta.");
-									new_diet = VisitorDiet::Allergic{food: new_food};
-									break;
-							},
-							_ => println!("\n[SEGURANÇA]\nnão entendi."),
-					}
-			}
-			println!("\n[SEGURANÇA]\nobrigado! na próxima você pode entrar!");
-			Visitor::new(&new_name, &new_greeting, new_diet)
+				new_diet = VisitorDiet::Allergic{food: new_food};
+				break;
+			},
+			_ => println!("\n[SEGURANÇA]\nnão entendi."),
+		}
 	}
+	println!("\n[SEGURANÇA]\nobrigado! na próxima você pode entrar!");
+	Visitor::new(&new_name, &new_greeting, new_diet)
+}
 #+END_SRC
 
 Essas duas funções avulsas são para capturar o texto digitado pro nome da pessoa e pra fazer todoo processo de capturar as respostas pra registrar um novo nome na lista. A parte mais chata foi entender que strings literais escritas no proprio arquivo do código fonte são do tipo ~str~ e strings instanciadas com ~String::new()~ são uma outra coisa. Esse bloco ~match~ que verifica a resposta sobre a dieta dos novos nomes foi super chato. O que entra logo depois do termo ~match~ e o que antecede cada setinha ~=>~ devem serdo mesmo tipo,o que faz sentido. Mas você também não pode executar uma função antes das ~=>~, então não sabia como fazer a comparação. No fim o que resolveu foi o método ~.trim()~ na String recebia. Fora que o compilador reclama se não houver um /"case default"/ (~_ =>~) ao fim do block ~match~, o que achei meio chato.
@@ -124,44 +121,44 @@ Mais uma coisa estranha: se você não usa o método ~expect()~ o compilador fal
 
 #+NAME: main.rs
 #+BEGIN_SRC rust -n
-	fn main() {
-			let mut name;
-			let mut know_visitor;
-			let mut visitors = vec![
-					Visitor::new("gabriel",
-											 "divirta-se, gabriel!",
-											 VisitorDiet::Meat),
-					Visitor::new("fernando",
-											 "fernando, seu leite está na geladeira.",
-											 VisitorDiet::Vegan),
-					Visitor::new("marcos",
-											 "marcos!? quem te convidou?",
-											 VisitorDiet::Oni),
-					Visitor::new("edu",
-											 "fala, duds! hehe...",
-											 VisitorDiet::Allergic {food: String::from("camarão")}),
-					];
+fn main() {
+	let mut name;
+	let mut know_visitor;
+	let mut visitors = vec![
+		Visitor::new("gabriel",
+					 "divirta-se, gabriel!",
+					 VisitorDiet::Meat),
+		Visitor::new("fernando",
+					 "fernando, seu leite está na geladeira.",
+					 VisitorDiet::Vegan),
+		Visitor::new("marcos",
+					 "marcos!? quem te convidou?",
+					 VisitorDiet::Oni),
+		Visitor::new("edu",
+					 "fala, duds! hehe...",
+					 VisitorDiet::Allergic {food: String::from("camarão")}),
+	];
 
-			loop {
-					println!("[SEGURANÇA]\nolá! qual é o seu nome? (vazio p/ encerrar)\n");
-					name = what_is_your_name();
-					know_visitor = visitors.iter().find(|visitor| visitor.name == name);
+	loop {
+		println!("[SEGURANÇA]\nolá! qual é o seu nome? (vazio p/ encerrar)\n");
+		name = what_is_your_name();
+		know_visitor = visitors.iter().find(|visitor| visitor.name == name);
 
-					match know_visitor {
-							Some(visitor) => visitor.greet_visitor(),
-							None => {
-									if name.is_empty() {
-											break;
-									}else{
-											visitors.push(first_came());
-									}
-							}
-					}
-					println!("\n----- ----- [PRÓX. DA FILA] ----- -----\n");
+		match know_visitor {
+			Some(visitor) => visitor.greet_visitor(),
+			None => {
+				if name.is_empty() {
+					break;
+				}else{
+					visitors.push(first_came());
+				}
 			}
-			println!("\nlista de convidados ao fim da noite:\n");
-			println!("{:?}", visitors);
+		}
+		println!("\n----- ----- [PRÓX. DA FILA] ----- -----\n");
 	}
+	println!("\nlista de convidados ao fim da noite:\n");
+	println!("{:?}", visitors);
+}
 
 #+END_SRC
 
