@@ -4,8 +4,11 @@ use bracket_lib::prelude::*;
 const SCREEN_W: i32 = 80;
 const SCREEN_H: i32 = 50;
 
+const DIAGONAL: f32 = 94.3398113; // FIXME hardcoded screen hypotenuse: bad!
+
 const PLAYER_RADIUS: i32 = 1;
-const DIR_LENGTH: f32 = 15.0;
+
+const DIR_LENGTH: f32 = 1.0;
 const ROT_STEP: f32 = 0.1;
 
 const TILE_SIZE: i32 = 5;
@@ -16,6 +19,120 @@ const TILES_H: i32 = SCREEN_H / TILE_SIZE;
 enum GameMode {
 	ThreeD,
 	TwoD,
+}
+
+enum HorizontalDirection{
+	Right,
+	Left,
+}
+
+enum VerticalDirection{
+	Up,
+	Down,
+}
+
+struct Ray {
+	origin: Vec<f32>,
+	plane: Vec<f32>,
+	h_dir: HorizontalDirection,
+	v_dir: VerticalDirection,
+}
+
+impl Ray{
+	fn new(origin: [f32; 2], plane: [f32; 2]) -> Self {
+		let h_dir: HorizontalDirection;
+		let v_dir: VerticalDirection;
+
+		if origin[0] < plane[0] {
+			h_dir = HorizontalDirection::Right;
+		} else {
+			h_dir = HorizontalDirection::Left;
+		}
+		if origin[1] < plane[1] {
+			v_dir = VerticalDirection::Down;
+		} else {
+			v_dir = VerticalDirection::Up;
+		}
+		Self {
+			origin: origin.to_vec(),
+			plane: plane.to_vec(),
+			h_dir,
+			v_dir,
+		}
+	}
+	fn check_column_collision(&self, map: &Map) -> f32 {
+		// 0. checa se oponto no plano não esta
+		//    dentro da parede.
+		if map.tile_from_vec(&self.plane) {
+			return 0.0;
+		}
+
+		// 1. montar o triangulo
+		/*
+					  c
+					 /|
+			  hypo  / | height
+			tenuse /  | side
+				  /   |
+				a ----- b
+			   base  side
+		 */
+
+		let dx = f32::abs(self.origin[0] - self.plane[0]);
+		if dx < 0.001 {
+			return DIAGONAL
+		}
+		let dy = f32::abs(self.origin[1] - self.plane[1]);
+		let slope =  dy / dx;
+		let angle = f32::atan(slope);
+
+		let base_side: f32;
+		match self.h_dir {
+			HorizontalDirection::Left => {
+				base_side = self.plane[0] % TILE_SIZE as f32;
+			},
+			HorizontalDirection::Right => {
+				base_side = TILE_SIZE as f32 -
+					self.plane[0] % TILE_SIZE as f32;
+			}
+		}
+		let first_len = base_side / f32::cos(angle);
+		let height_side = f32::sin(angle) * first_len;
+
+		if map.tile_from_vec(&vec!(self.plane[0] + base_side,
+								   self.plane[1] + height_side))
+		{
+			return first_len;
+		}
+
+		let mut len_inc: f32 = first_len;
+		let mut step_len = TILE_SIZE as f32 / f32::cos(angle);
+		let mut step_height = f32::sin(angle) * step_len;
+		match self.h_dir {
+			HorizontalDirection::Left => step_len = -step_len,
+			HorizontalDirection::Right => {}
+		}
+		match self.v_dir {
+			VerticalDirection::Up => step_height = -step_height,
+			VerticalDirection::Down => {}
+		}
+		let mut counter = 1;
+		loop {
+			len_inc = len_inc + step_len;
+			counter = counter + 1;
+			if map.tile_from_vec(&vec!(self.plane[0] +
+									   base_side +
+									   (counter * TILE_SIZE) as f32,
+									   self.origin[1] +
+									   height_side +
+									   counter as f32 * step_height))
+			{
+				return len_inc;
+			}
+		}
+	}
+	// fn check_row_collision(&self) -> f32 {}
+	// fn cast(&self) -> f32 {}
 }
 
 struct Map {
@@ -45,7 +162,40 @@ impl Map {
 			tiles: temp_tiles,
 		}
 	}
-	fn render (&self, ctx: &mut BTerm) {
+	fn tile_from_vec(&self, v: &Vec<f32>) -> bool {
+		let x: i32 = v[0].floor() as i32 / TILE_SIZE;
+		let y: i32 = v[1].floor() as i32 / TILE_SIZE;
+		let index: usize = (x + y * TILES_W) as usize;
+		println!("tiles_from_vec()");
+		println!("get [{}, {}]", v[0], v[1]);
+		println!("solved to [{}, {}] (index {})", x, y, index);
+		if x < 0 || x > TILES_W || y < 0 || y > TILES_H {
+			println!("INDEX OUT OF BOUNDS! Returning true!");
+			return true;
+		}
+		println!("and returning {}.", self.tiles[index]);
+		self.tiles[index]
+	}
+	fn check_column_tile(&self, ray: &Ray, point: Vec<f32>) -> bool {
+		let x: i32 = point[0].floor() as i32 / TILE_SIZE;
+		let y: i32 = point[1].floor() as i32 / TILE_SIZE;
+		// return self.tiles[(x + y * TILES_W) as usize];
+		let index: usize;
+		match ray.h_dir {
+			HorizontalDirection::Right => {
+				index = (x + 1 + y * TILES_W) as usize;
+			},
+			HorizontalDirection::Left => {
+				index = (x - 1 + y * TILES_W) as usize;
+			}
+		}
+		if (index as i32) >= 0 && (index as i32) < TILES_W * TILES_H {
+			self.tiles[index]
+		} else {
+			true
+		}
+	}
+	fn render(&self, ctx: &mut BTerm) {
 		let mut counter = 0;
 		for i in &self.tiles {
 			let _x1 = (counter * TILE_SIZE) % SCREEN_W;
@@ -88,10 +238,19 @@ impl State {
 	}
 	fn two_d(&mut self, ctx: &mut BTerm) {
 		ctx.cls();
-		ctx.print(1, 1, "Hellow 2D World!");
 		self.map.render(ctx);
-		self.player.update(ctx);
+		self.player.update(ctx, &self.map);
 		self.player.render(ctx);
+		ctx.print(0, 0, "Hellow 2D World!");
+		ctx.print(0, 1, format!("P: {}, {}",
+								self.player.camera[0],
+								self.player.camera[1]));
+		ctx.print(0, 2, format!("D: {}, {}",
+			self.player.camera[0] + self.player.direction[0],
+			self.player.camera[1] + self.player.direction[1]));
+		ctx.print(0, 3, format!("N: {}, {}",
+			self.player.camera[0] + self.player.direction[0] - self.player.plane[0] / 2.0,
+			self.player.camera[1] + self.player.direction[1] - self.player.plane[1] / 2.0));
 	}
 }
 
@@ -127,9 +286,22 @@ impl Player {
 			r.sin() * v[0] + r.cos() * v[1]
 		]
 	}
-	fn update(&mut self, ctx: &mut BTerm) {
+	fn update(&mut self, ctx: &mut BTerm, map: &Map) {
 		if let Some(key) = ctx.key {
 			match key {
+				VirtualKeyCode::Q => {
+					let point_at_plane = [
+						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
+						self.camera[1]+self.direction[1]+self.plane[1]/2.0,
+					];
+					println!("{}",
+							 Ray::new(
+								 [self.camera[0], self.camera[1]],
+								 point_at_plane).check_column_collision(&map));
+				}
+				VirtualKeyCode::E => {
+					map.tile_from_vec(&vec!(self.camera[0], self.camera[1]));
+				}
 				VirtualKeyCode::W => {
 					self.camera = Self::sum(
 						self.camera,
@@ -172,12 +344,12 @@ impl Player {
 			self.camera[1].round() as i32
 		);
 		let dir =  Point::new(
-			self.direction[0].round() as i32,
-			self.direction[1].round() as i32
+			(self.direction[0] * 100.0).round() as i32,
+			(self.direction[1] * 100.0).round() as i32
 		);
 		let pln = Point::new(
-			(self.plane[0] / 2.0).round() as i32,
-			(self.plane[1] / 2.0).round() as i32
+			(self.plane[0] / 2.0 * 100.0).round() as i32,
+			(self.plane[1] / 2.0 * 100.0).round() as i32
 		);
 		for point in Bresenham::new(pos, pos + dir + pln) {
 			ctx.set(point.x, point.y, WHITE, BLACK, '*');
