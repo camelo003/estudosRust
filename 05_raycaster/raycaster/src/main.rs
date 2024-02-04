@@ -20,12 +20,13 @@ enum GameMode {
 	ThreeD,
 	TwoD,
 }
-
+#[derive(Debug)]
 enum HorizontalDirection{
 	Right,
 	Left,
 }
 
+#[derive(Debug)]
 enum VerticalDirection{
 	Up,
 	Down,
@@ -60,12 +61,14 @@ impl Ray{
 			v_dir,
 		}
 	}
-	fn check_column_collision(&self, map: &Map) -> f32 {
+	fn check_column_collision(&self, map: &Map) -> (f32, Vec<f32>) {
 		// 0. checa se oponto no plano não esta
-		//    dentro da parede.
-		if map.tile_from_vec(&self.plane) {
-			return 0.0;
-		}
+		//    de-ntro da parede.
+		// if map.tile_from_vec(&self.plane) {
+		// if map.check_column_tile(&self, self.plane.clone()){
+		//	println!("return 0.0 because plane is inside windows!");
+		//	return (0.0, self.plane.clone());
+		//}
 
 		// 1. montar o triangulo
 		/*
@@ -79,55 +82,61 @@ impl Ray{
 		 */
 
 		let dx = f32::abs(self.origin[0] - self.plane[0]);
-		if dx < 0.001 {
-			return DIAGONAL
-		}
 		let dy = f32::abs(self.origin[1] - self.plane[1]);
+		if dx < 0.001 && dy > TILE_SIZE as f32{
+			return (DIAGONAL, vec!(-1.0, -1.0));
+		}
 		let slope =  dy / dx;
 		let angle = f32::atan(slope);
 
-		let base_side: f32;
+		let mut base_side: f32;
+		let mut delta_x_sign: f32 = 1.0;
 		match self.h_dir {
 			HorizontalDirection::Left => {
 				base_side = self.plane[0] % TILE_SIZE as f32;
+				delta_x_sign = -delta_x_sign;
 			},
 			HorizontalDirection::Right => {
 				base_side = TILE_SIZE as f32 -
 					self.plane[0] % TILE_SIZE as f32;
 			}
 		}
+		let mut delta_y_sign: f32 = 1.0;
+		match self.v_dir {
+			VerticalDirection::Up => delta_y_sign = -delta_y_sign,
+			VerticalDirection::Down => {}
+		}
 		let first_len = base_side / f32::cos(angle);
-		let height_side = f32::sin(angle) * first_len;
+		let mut height_side = f32::sin(angle) * first_len;
 
-		if map.tile_from_vec(&vec!(self.plane[0] + base_side,
-								   self.plane[1] + height_side))
+		let mut collided_vec: Vec<f32> = vec!(self.plane[0] +
+											  base_side *
+											  delta_x_sign,
+											  self.plane[1] +
+											  height_side *
+											  delta_y_sign);
+		// if map.tile_from_vec(&collided_vec)
+		if map.check_column_tile(&self, collided_vec.clone())
 		{
-			return first_len;
+			return (first_len, collided_vec);
 		}
 
 		let mut len_inc: f32 = first_len;
 		let mut step_len = TILE_SIZE as f32 / f32::cos(angle);
 		let mut step_height = f32::sin(angle) * step_len;
-		match self.h_dir {
-			HorizontalDirection::Left => step_len = -step_len,
-			HorizontalDirection::Right => {}
-		}
-		match self.v_dir {
-			VerticalDirection::Up => step_height = -step_height,
-			VerticalDirection::Down => {}
-		}
-		let mut counter = 1;
+
+		let mut counter = 0;
 		loop {
 			len_inc = len_inc + step_len;
 			counter = counter + 1;
-			if map.tile_from_vec(&vec!(self.plane[0] +
-									   base_side +
-									   (counter * TILE_SIZE) as f32,
-									   self.origin[1] +
-									   height_side +
-									   counter as f32 * step_height))
+			let vx = (base_side + (counter * TILE_SIZE) as f32) * delta_x_sign;
+			let vy=(height_side + counter as f32 * step_height) * delta_y_sign;
+			collided_vec = vec!(self.plane[0] + vx,
+								self.origin[1] + vy);
+			// if map.tile_from_vec(&collided_vec)
+			if map.check_column_tile(&self, collided_vec.clone())
 			{
-				return len_inc;
+				return (len_inc, collided_vec);
 			}
 		}
 	}
@@ -135,6 +144,7 @@ impl Ray{
 	// fn cast(&self) -> f32 {}
 }
 
+#[derive(Clone)]
 struct Map {
 	tiles: Vec<bool>,
 }
@@ -163,17 +173,12 @@ impl Map {
 		}
 	}
 	fn tile_from_vec(&self, v: &Vec<f32>) -> bool {
-		let x: i32 = v[0].floor() as i32 / TILE_SIZE;
-		let y: i32 = v[1].floor() as i32 / TILE_SIZE;
+		let x: i32 = v[0].round() as i32 / TILE_SIZE;
+		let y: i32 = v[1].round() as i32 / TILE_SIZE;
 		let index: usize = (x + y * TILES_W) as usize;
-		println!("tiles_from_vec()");
-		println!("get [{}, {}]", v[0], v[1]);
-		println!("solved to [{}, {}] (index {})", x, y, index);
-		if x < 0 || x > TILES_W || y < 0 || y > TILES_H {
-			println!("INDEX OUT OF BOUNDS! Returning true!");
+		if x < 0 || x >= TILES_W || y < 0 || y >= TILES_H {
 			return true;
 		}
-		println!("and returning {}.", self.tiles[index]);
 		self.tiles[index]
 	}
 	fn check_column_tile(&self, ray: &Ray, point: Vec<f32>) -> bool {
@@ -183,7 +188,7 @@ impl Map {
 		let index: usize;
 		match ray.h_dir {
 			HorizontalDirection::Right => {
-				index = (x + 1 + y * TILES_W) as usize;
+				index = (x + y * TILES_W) as usize;
 			},
 			HorizontalDirection::Left => {
 				index = (x - 1 + y * TILES_W) as usize;
@@ -225,11 +230,11 @@ struct State {
 }
 
 impl State {
-	fn new() -> Self {
+	fn new(map: &Map) -> Self {
 		Self {
 			mode: GameMode::TwoD,
-			player: Player::new(),
-			map: Map::new(),
+			player: Player::new(&map),
+			map: map.clone(),
 		}
 	}
 	fn three_d(&mut self, ctx: &mut BTerm) {
@@ -258,15 +263,25 @@ struct Player {
 	camera: [f32; 2],
 	direction: [f32; 2],
 	plane: [f32; 2],
+	begin: Vec<f32>,
+	end: Vec<f32>,
 }
 
 impl Player {
-	fn new() -> Self {
-		let p = f32::tan(0.436332) * DIR_LENGTH;
+	fn new(map: &Map) -> Self {
+		let c = [10.0, 10.0];
+		let d = [DIR_LENGTH, 0.0];
+		let p = [0.0, f32::tan(0.436332) * DIR_LENGTH];
+		let b = vec!(c[0] + d[0] + p[0] / 2.0,
+					 c[1] + d[1] + p[1] / 2.0);
 		Self {
-			camera: [10.0, 10.0],
-			direction: [DIR_LENGTH, 0.0],
-			plane: [0.0, p],
+			camera: c,
+			direction: d,
+			plane: p,
+			begin: b,
+			end: Ray::new(c, [c[0] + d[0] + p[0] / 2.0,
+							  c[1] + d[1] + p[1] / 2.0])
+				.check_column_collision(map).1,
 		}
 	}
 	fn normalize(v: [f32; 2]) -> [f32; 2] {
@@ -294,10 +309,26 @@ impl Player {
 						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
 						self.camera[1]+self.direction[1]+self.plane[1]/2.0,
 					];
-					println!("{}",
-							 Ray::new(
-								 [self.camera[0], self.camera[1]],
-								 point_at_plane).check_column_collision(&map));
+					let ray_result: (f32, Vec<f32>);
+					ray_result = Ray::new([self.camera[0], self.camera[1]],
+										  point_at_plane)
+						.check_column_collision(&map);
+					ctx.set(ray_result.1[0].round() as i32,
+							ray_result.1[1].round() as i32,
+							RED, RED, 'X');
+					let _ = std::process::Command::new("pause").status();
+				}
+				VirtualKeyCode::Z => {
+					self.begin = vec!(self.camera[0] +
+									  self.direction[0] +
+									  self.plane[0] / 2.0,
+									  self.camera[1] +
+									  self.direction[1] +
+									  self.plane[0] / 2.0);
+					self.end = Ray::new(self.camera,[
+						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
+						self.camera[1]+self.direction[1]+self.plane[1]/2.0])
+						.check_column_collision(map).1;
 				}
 				VirtualKeyCode::E => {
 					map.tile_from_vec(&vec!(self.camera[0], self.camera[1]));
@@ -363,6 +394,13 @@ impl Player {
 		for point in BresenhamCircle::new(pos, PLAYER_RADIUS) {
 			ctx.set(point.x, point.y, GREEN, BLACK, '*');
 		}
+		for point in Bresenham::new(Point::new(self.begin[0] as i32,
+											   self.begin[1] as i32),
+									Point::new(self.end[0] as i32,
+											   self.end[1] as i32))
+		{
+			ctx.set(point.x, point.y, RED, BLACK, '*');
+		}
 		ctx.set(pos.x, pos.y, WHITE, BLACK, 'P');
 	}
 }
@@ -380,5 +418,5 @@ fn main() -> BError {
 	let context = BTermBuilder::simple80x50()
 		.with_title("Raycaster").
 		build()?;
-	main_loop(context, State::new())
+	main_loop(context, State::new(&Map::new()))
 }
