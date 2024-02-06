@@ -20,13 +20,12 @@ enum GameMode {
 	ThreeD,
 	TwoD,
 }
-#[derive(Debug)]
+
 enum HorizontalDirection{
 	Right,
 	Left,
 }
 
-#[derive(Debug)]
 enum VerticalDirection{
 	Up,
 	Down,
@@ -83,7 +82,7 @@ impl Ray{
 
 		let dx = f32::abs(self.origin[0] - self.plane[0]);
 		let dy = f32::abs(self.origin[1] - self.plane[1]);
-		if dx < 0.001 && dy > TILE_SIZE as f32{
+		if dx < 0.001 && dy > TILE_SIZE as f32 {
 			return (DIAGONAL, vec!(-1.0, -1.0));
 		}
 		let slope =  dy / dx;
@@ -116,7 +115,7 @@ impl Ray{
 											  height_side *
 											  delta_y_sign);
 		// if map.tile_from_vec(&collided_vec)
-		if map.check_column_tile(&self, collided_vec.clone())
+		if map.check_row_tile(&self, collided_vec.clone())
 		{
 			return (first_len, collided_vec);
 		}
@@ -134,13 +133,70 @@ impl Ray{
 			collided_vec = vec!(self.plane[0] + vx,
 								self.origin[1] + vy);
 			// if map.tile_from_vec(&collided_vec)
-			if map.check_column_tile(&self, collided_vec.clone())
+			if map.check_row_tile(&self, collided_vec.clone())
 			{
 				return (len_inc, collided_vec);
 			}
 		}
 	}
-	// fn check_row_collision(&self) -> f32 {}
+	fn check_row_collision(&self, map: &Map) -> (f32, Vec<f32>) {
+		let dx = f32::abs(self.origin[0] - self.plane[0]);
+		let dy = f32::abs(self.origin[1] - self.plane[1]);
+		if dy < 0.001 && dx > TILE_SIZE as f32 {
+			return (DIAGONAL, vec!(-1.0, -1.0));
+		}
+		let slope =  dy / dx;
+		let angle = f32::atan(slope);
+
+		let mut height_side: f32;
+		let mut delta_y_sign: f32 = 1.0;
+		match self.v_dir {
+			VerticalDirection::Down => {
+				height_side = TILE_SIZE as f32 -
+					self.plane[1] % TILE_SIZE as f32;
+			},
+			VerticalDirection::Up => {
+				height_side = self.plane[1] % TILE_SIZE as f32;
+				delta_y_sign = -delta_y_sign;
+			}
+		}
+		let mut delta_x_sign: f32 = 1.0;
+		match self.h_dir {
+			HorizontalDirection::Left => delta_x_sign = -delta_x_sign,
+			HorizontalDirection::Right => {}
+		}
+		let first_len = height_side / f32::sin(angle);
+		let mut base_side = f32::cos(angle) * first_len;
+
+		let mut collided_vec: Vec<f32> = vec!(self.plane[0] +
+											  base_side *
+											  delta_x_sign,
+											  self.plane[1] +
+											  height_side *
+											  delta_y_sign);
+		if map.check_row_tile(&self, collided_vec.clone())
+		{
+			return (first_len, collided_vec);
+		}
+
+		let mut len_inc: f32 = first_len;
+		let mut step_len = TILE_SIZE as f32 / f32::sin(angle);
+		let mut step_base = f32::cos(angle) * step_len;
+
+		let mut counter = 0;
+		loop {
+			len_inc = len_inc + step_len;
+			counter = counter + 1;
+			let vx = (base_side + (counter as f32) * step_base) * delta_x_sign;
+			let vy=(height_side + (counter * TILE_SIZE) as f32) * delta_y_sign;
+			collided_vec = vec!(self.plane[0] + vx,
+								self.plane[1] + vy);
+			if map.check_row_tile(&self, collided_vec.clone())
+			{
+				return (len_inc, collided_vec);
+			}
+		}
+	}
 	// fn cast(&self) -> f32 {}
 }
 
@@ -181,10 +237,13 @@ impl Map {
 		}
 		self.tiles[index]
 	}
-	fn check_column_tile(&self, ray: &Ray, point: Vec<f32>) -> bool {
+	fn mapspace_to_tilespace(&self, point: Vec<f32>) -> (i32, i32) {
 		let x: i32 = point[0].floor() as i32 / TILE_SIZE;
 		let y: i32 = point[1].floor() as i32 / TILE_SIZE;
-		// return self.tiles[(x + y * TILES_W) as usize];
+		(x, y)
+	}
+	fn check_column_tile(&self, ray: &Ray, point: Vec<f32>) -> bool {
+		let (x , y) = self.mapspace_to_tilespace(point);
 		let index: usize;
 		match ray.h_dir {
 			HorizontalDirection::Right => {
@@ -192,6 +251,23 @@ impl Map {
 			},
 			HorizontalDirection::Left => {
 				index = (x - 1 + y * TILES_W) as usize;
+			}
+		}
+		if (index as i32) >= 0 && (index as i32) < TILES_W * TILES_H {
+			self.tiles[index]
+		} else {
+			true
+		}
+	}
+	fn check_row_tile(&self, ray: &Ray, point: Vec<f32>) -> bool {
+		let (x , y) = self.mapspace_to_tilespace(point);
+		let index: usize;
+		match ray.v_dir {
+			VerticalDirection::Down => {
+				index = (x + y * TILES_W) as usize;
+			},
+			VerticalDirection::Up => {
+				index = (x + (y - 1) * TILES_W) as usize;
 			}
 		}
 		if (index as i32) >= 0 && (index as i32) < TILES_W * TILES_H {
@@ -324,12 +400,13 @@ impl Player {
 									  self.plane[0] / 2.0,
 									  self.camera[1] +
 									  self.direction[1] +
-									  self.plane[0] / 2.0);
+									  self.plane[1] / 2.0);
 					self.end = Ray::new(self.camera,[
 						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
 						self.camera[1]+self.direction[1]+self.plane[1]/2.0])
-						.check_column_collision(map).1;
-				}
+					//.check_column_collision(map).1;
+						.check_row_collision(map).1;
+			}
 				VirtualKeyCode::E => {
 					map.tile_from_vec(&vec!(self.camera[0], self.camera[1]));
 				}
