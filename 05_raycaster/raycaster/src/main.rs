@@ -114,8 +114,7 @@ impl Ray{
 											  self.plane[1] +
 											  height_side *
 											  delta_y_sign);
-		// if map.tile_from_vec(&collided_vec)
-		if map.check_row_tile(&self, collided_vec.clone())
+		if map.check_column_tile(&self, collided_vec.clone())
 		{
 			return (first_len, collided_vec);
 		}
@@ -132,8 +131,7 @@ impl Ray{
 			let vy=(height_side + counter as f32 * step_height) * delta_y_sign;
 			collided_vec = vec!(self.plane[0] + vx,
 								self.origin[1] + vy);
-			// if map.tile_from_vec(&collided_vec)
-			if map.check_row_tile(&self, collided_vec.clone())
+			if map.check_column_tile(&self, collided_vec.clone())
 			{
 				return (len_inc, collided_vec);
 			}
@@ -197,7 +195,15 @@ impl Ray{
 			}
 		}
 	}
-	// fn cast(&self) -> f32 {}
+	fn cast(&self, map: &Map) -> (f32, Vec<f32>) {
+		let (column_len, column_point) = self.check_column_collision(map);
+		let (row_len, row_point) = self.check_row_collision(map);
+		if column_len < row_len {
+			(column_len, column_point)
+		} else {
+			(row_len, row_point)
+		}
+	}
 }
 
 #[derive(Clone)]
@@ -250,7 +256,7 @@ impl Map {
 				index = (x + y * TILES_W) as usize;
 			},
 			HorizontalDirection::Left => {
-				index = (x - 1 + y * TILES_W) as usize;
+				index = ((x - 1) + y * TILES_W) as usize;
 			}
 		}
 		if (index as i32) >= 0 && (index as i32) < TILES_W * TILES_H {
@@ -404,8 +410,7 @@ impl Player {
 					self.end = Ray::new(self.camera,[
 						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
 						self.camera[1]+self.direction[1]+self.plane[1]/2.0])
-					//.check_column_collision(map).1;
-						.check_row_collision(map).1;
+					.cast(map).1;
 			}
 				VirtualKeyCode::E => {
 					map.tile_from_vec(&vec!(self.camera[0], self.camera[1]));
