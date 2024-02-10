@@ -15,6 +15,7 @@ const TILE_SIZE: i32 = 5;
 
 const TILES_W: i32 = SCREEN_W / TILE_SIZE;
 const TILES_H: i32 = SCREEN_H / TILE_SIZE;
+const TILES_CUBE: i32 = TILES_W * TILES_H;
 
 enum GameMode {
 	ThreeD,
@@ -61,14 +62,6 @@ impl Ray{
 		}
 	}
 	fn check_column_collision(&self, map: &Map) -> (f32, Vec<f32>) {
-		// 0. checa se oponto no plano não esta
-		//    de-ntro da parede.
-		// if map.tile_from_vec(&self.plane) {
-		// if map.check_column_tile(&self, self.plane.clone()){
-		//	println!("return 0.0 because plane is inside windows!");
-		//	return (0.0, self.plane.clone());
-		//}
-
 		// 1. montar o triangulo
 		/*
 					  c
@@ -82,11 +75,17 @@ impl Ray{
 
 		let dx = f32::abs(self.origin[0] - self.plane[0]);
 		let dy = f32::abs(self.origin[1] - self.plane[1]);
-		if dx < 0.001 && dy > TILE_SIZE as f32 {
+		if dx == 0.0 {
 			return (DIAGONAL, vec!(-1.0, -1.0));
 		}
-		let slope =  dy / dx;
-		let angle = f32::atan(slope);
+		let slope: f32;
+		let angle: f32;
+		if dx == 0.0 {
+			angle = 0.0;
+		} else {
+			slope =  dy / dx;
+			angle = f32::atan(slope);
+		}
 
 		let mut base_side: f32;
 		let mut delta_x_sign: f32 = 1.0;
@@ -140,11 +139,17 @@ impl Ray{
 	fn check_row_collision(&self, map: &Map) -> (f32, Vec<f32>) {
 		let dx = f32::abs(self.origin[0] - self.plane[0]);
 		let dy = f32::abs(self.origin[1] - self.plane[1]);
-		if dy < 0.001 && dx > TILE_SIZE as f32 {
+		if dy == 0.0 {
 			return (DIAGONAL, vec!(-1.0, -1.0));
 		}
-		let slope =  dy / dx;
-		let angle = f32::atan(slope);
+		let slope: f32;
+		let angle: f32;
+		if dx == 0.0 {
+			angle = 0.0;
+		} else {
+			slope =  dy / dx;
+			angle = f32::atan(slope);
+		}
 
 		let mut height_side: f32;
 		let mut delta_y_sign: f32 = 1.0;
@@ -282,7 +287,7 @@ impl Map {
 			true
 		}
 	}
-	fn render(&self, ctx: &mut BTerm) {
+	fn render_2d(&self, ctx: &mut BTerm) {
 		let mut counter = 0;
 		for i in &self.tiles {
 			let _x1 = (counter * TILE_SIZE) % SCREEN_W;
@@ -303,6 +308,24 @@ impl Map {
 			counter = counter + 1;
 		}
 	}
+	fn map_to_range(s: f32, a1: f32, a2: f32, b1: f32, b2: f32) -> f32{
+		b1 + (s - a1) * (b2 - b1)/(a2 - a1)
+
+	}
+	fn render_3d(&self, ctx: &mut BTerm, ply: &Player) {
+		for i in 0..SCREEN_W {
+			let line_h = Self::map_to_range(ply.dist[i as usize],
+											0.0,
+											DIAGONAL * 0.75,
+											SCREEN_H as f32,
+											0.0);
+			let line_offset = (SCREEN_H as f32 - line_h) / 2.0;
+				let line: Bresenham = Bresenham::new(
+					Point {x: i, y: line_offset as i32},
+					Point {x: i, y: SCREEN_H - line_offset as i32});
+			line.for_each(|p: Point| ctx.set(p.x, p.y, GREY, BLACK, '#'));
+		}
+	}
 }
 
 struct State {
@@ -314,18 +337,20 @@ struct State {
 impl State {
 	fn new(map: &Map) -> Self {
 		Self {
-			mode: GameMode::TwoD,
+			mode: GameMode::ThreeD,
 			player: Player::new(&map),
 			map: map.clone(),
 		}
 	}
 	fn three_d(&mut self, ctx: &mut BTerm) {
 		ctx.cls();
+		self.player.update(ctx, &self.map);
+		self.map.render_3d(ctx, &self.player);
 		ctx.print(1, 1, "Hellow 3D World!");
 	}
 	fn two_d(&mut self, ctx: &mut BTerm) {
 		ctx.cls();
-		self.map.render(ctx);
+		self.map.render_2d(ctx);
 		self.player.update(ctx, &self.map);
 		self.player.render(ctx);
 		ctx.print(0, 0, "Hellow 2D World!");
@@ -345,25 +370,50 @@ struct Player {
 	camera: [f32; 2],
 	direction: [f32; 2],
 	plane: [f32; 2],
-	begin: Vec<f32>,
-	end: Vec<f32>,
+	begin: Vec<Vec<f32>>,
+	end: Vec<Vec<f32>>,
+	dist: Vec<f32>
 }
 
 impl Player {
+	fn lerp_f32(a: f32, b: f32, t:f32) -> f32 {
+		a + t * (b - a)
+	}
+	fn cast_all(c: [f32; 2],
+				d: [f32; 2],
+				p: [f32; 2],
+				map: &Map) -> (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<f32>) {
+		let mut b:  Vec<Vec<f32>> = Vec::new();
+		let mut e:  Vec<Vec<f32>> = Vec::new();
+		let mut dt: Vec<f32> = Vec::new();
+		let w: f32 = 1.0 / SCREEN_W as f32;
+		for i in 0..SCREEN_W {
+			let lerp_x: f32;
+			let lerp_y: f32;
+			let t: f32 = w * i as f32; // FIXME? compensar ultimo ray?
+			lerp_x = Self::lerp_f32(-p[0] / 2.0, p[0] / 2.0, t);
+			lerp_y = Self::lerp_f32(-p[1] / 2.0, p[1] / 2.0, t);
+			b.push(vec!(c[0] + d[0] + lerp_x,
+						c[1] + d[1] + lerp_y));
+			let ray = Ray::new(c, [c[0] + d[0] + lerp_x,
+								   c[1] + d[1] + lerp_y]).cast(map);
+			e.push(ray.1);
+			dt.push(ray.0);
+		}
+		(b, e, dt)
+	}
 	fn new(map: &Map) -> Self {
 		let c = [10.0, 10.0];
 		let d = [DIR_LENGTH, 0.0];
 		let p = [0.0, f32::tan(0.436332) * DIR_LENGTH];
-		let b = vec!(c[0] + d[0] + p[0] / 2.0,
-					 c[1] + d[1] + p[1] / 2.0);
+		let (b, e, dt) = Self::cast_all(c, d, p, map);
 		Self {
 			camera: c,
 			direction: d,
 			plane: p,
 			begin: b,
-			end: Ray::new(c, [c[0] + d[0] + p[0] / 2.0,
-							  c[1] + d[1] + p[1] / 2.0])
-				.check_column_collision(map).1,
+			end: e,
+			dist: dt,
 		}
 	}
 	fn normalize(v: [f32; 2]) -> [f32; 2] {
@@ -386,46 +436,32 @@ impl Player {
 	fn update(&mut self, ctx: &mut BTerm, map: &Map) {
 		if let Some(key) = ctx.key {
 			match key {
-				VirtualKeyCode::Q => {
-					let point_at_plane = [
-						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
-						self.camera[1]+self.direction[1]+self.plane[1]/2.0,
-					];
-					let ray_result: (f32, Vec<f32>);
-					ray_result = Ray::new([self.camera[0], self.camera[1]],
-										  point_at_plane)
-						.check_column_collision(&map);
-					ctx.set(ray_result.1[0].round() as i32,
-							ray_result.1[1].round() as i32,
-							RED, RED, 'X');
-					let _ = std::process::Command::new("pause").status();
-				}
 				VirtualKeyCode::Z => {
-					self.begin = vec!(self.camera[0] +
-									  self.direction[0] +
-									  self.plane[0] / 2.0,
-									  self.camera[1] +
-									  self.direction[1] +
-									  self.plane[1] / 2.0);
-					self.end = Ray::new(self.camera,[
-						self.camera[0]+self.direction[0]+self.plane[0]/2.0,
-						self.camera[1]+self.direction[1]+self.plane[1]/2.0])
-					.cast(map).1;
-			}
-				VirtualKeyCode::E => {
-					map.tile_from_vec(&vec!(self.camera[0], self.camera[1]));
-				}
+					for i in 0..self.dist.len() {
+						println!("{}: {}", i, self.dist[i]);
+					}
+				},
 				VirtualKeyCode::W => {
 					self.camera = Self::sum(
 						self.camera,
 						Self::normalize(self.direction)
-					)
+					);
+					(self.begin, self.end, self.dist) =
+						Self::cast_all(self.camera,
+									   self.direction,
+									   self.plane,
+									   map);
 				},
 				VirtualKeyCode::S => {
 					self.camera = Self::sub(
 						self.camera,
 						Self::normalize(self.direction)
-					)
+					);
+					(self.begin, self.end, self.dist) =
+						Self::cast_all(self.camera,
+									   self.direction,
+									   self.plane,
+									   map);
 				},
 				VirtualKeyCode::A => {
 					self.direction = Self::rot(
@@ -436,6 +472,11 @@ impl Player {
 						self.plane,
 						-ROT_STEP
 					);
+					(self.begin, self.end, self.dist) =
+						Self::cast_all(self.camera,
+									   self.direction,
+									   self.plane,
+									   map);
 				},
 				VirtualKeyCode::D => {
 					self.direction = Self::rot(
@@ -446,6 +487,11 @@ impl Player {
 						self.plane,
 						ROT_STEP
 					);
+					(self.begin, self.end, self.dist) =
+						Self::cast_all(self.camera,
+									   self.direction,
+									   self.plane,
+									   map);
 				},
 				_ => {},
 			}
@@ -464,24 +510,20 @@ impl Player {
 			(self.plane[0] / 2.0 * 100.0).round() as i32,
 			(self.plane[1] / 2.0 * 100.0).round() as i32
 		);
-		for point in Bresenham::new(pos, pos + dir + pln) {
-			ctx.set(point.x, point.y, WHITE, BLACK, '*');
-		}
-		for point in Bresenham::new(pos, pos + dir - pln) {
-			ctx.set(point.x, point.y, WHITE, BLACK, '*');
-		}
 		for point in Bresenham::new(pos + dir + pln, pos + dir - pln) {
 			ctx.set(point.x, point.y, WHITE, BLACK, '*');
 		}
+		for i in 0..self.begin.len() {
+			for point in Bresenham::new(Point::new(self.begin[i][0] as i32,
+												   self.begin[i][1] as i32),
+										Point::new(self.end[i][0] as i32,
+												   self.end[i][1] as i32))
+			{
+				ctx.set(point.x, point.y, RED, BLACK, '*');
+			}
+		}
 		for point in BresenhamCircle::new(pos, PLAYER_RADIUS) {
 			ctx.set(point.x, point.y, GREEN, BLACK, '*');
-		}
-		for point in Bresenham::new(Point::new(self.begin[0] as i32,
-											   self.begin[1] as i32),
-									Point::new(self.end[0] as i32,
-											   self.end[1] as i32))
-		{
-			ctx.set(point.x, point.y, RED, BLACK, '*');
 		}
 		ctx.set(pos.x, pos.y, WHITE, BLACK, 'P');
 	}
