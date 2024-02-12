@@ -1,4 +1,5 @@
 use bracket_lib::prelude::*;
+use std;
 // use bracket_geometry::prelude::*;
 
 const SCREEN_W: i32 = 80;
@@ -9,7 +10,7 @@ const DIAGONAL: f32 = 94.3398113; // FIXME hardcoded screen hypotenuse: bad!
 const PLAYER_RADIUS: i32 = 1;
 
 const DIR_LENGTH: f32 = 1.0;
-const ROT_STEP: f32 = 0.1;
+const ROT_STEP: f32 = 0.2;
 
 const TILE_SIZE: i32 = 5;
 
@@ -61,7 +62,7 @@ impl Ray{
 			v_dir,
 		}
 	}
-	fn check_column_collision(&self, map: &Map) -> (f32, Vec<f32>) {
+	fn check_column_collision(&self, map: &Map) -> (f32, Vec<f32>, bool) {
 		// 1. montar o triangulo
 		/*
 					  c
@@ -76,7 +77,7 @@ impl Ray{
 		let dx = f32::abs(self.origin[0] - self.plane[0]);
 		let dy = f32::abs(self.origin[1] - self.plane[1]);
 		if dx == 0.0 {
-			return (DIAGONAL, vec!(-1.0, -1.0));
+			return (DIAGONAL, vec!(-1.0, -1.0), false);
 		}
 		let slope: f32;
 		let angle: f32;
@@ -115,7 +116,7 @@ impl Ray{
 											  delta_y_sign);
 		if map.check_column_tile(&self, collided_vec.clone())
 		{
-			return (first_len, collided_vec);
+			return (first_len, collided_vec, true);
 		}
 
 		let mut len_inc: f32 = first_len;
@@ -132,15 +133,15 @@ impl Ray{
 								self.origin[1] + vy);
 			if map.check_column_tile(&self, collided_vec.clone())
 			{
-				return (len_inc, collided_vec);
+				return (len_inc, collided_vec, true);
 			}
 		}
 	}
-	fn check_row_collision(&self, map: &Map) -> (f32, Vec<f32>) {
+	fn check_row_collision(&self, map: &Map) -> (f32, Vec<f32>, bool) {
 		let dx = f32::abs(self.origin[0] - self.plane[0]);
 		let dy = f32::abs(self.origin[1] - self.plane[1]);
 		if dy == 0.0 {
-			return (DIAGONAL, vec!(-1.0, -1.0));
+			return (DIAGONAL, vec!(-1.0, -1.0), true);
 		}
 		let slope: f32;
 		let angle: f32;
@@ -179,7 +180,7 @@ impl Ray{
 											  delta_y_sign);
 		if map.check_row_tile(&self, collided_vec.clone())
 		{
-			return (first_len, collided_vec);
+			return (first_len, collided_vec, false);
 		}
 
 		let mut len_inc: f32 = first_len;
@@ -196,17 +197,19 @@ impl Ray{
 								self.plane[1] + vy);
 			if map.check_row_tile(&self, collided_vec.clone())
 			{
-				return (len_inc, collided_vec);
+				return (len_inc, collided_vec, false);
 			}
 		}
 	}
-	fn cast(&self, map: &Map) -> (f32, Vec<f32>) {
-		let (column_len, column_point) = self.check_column_collision(map);
-		let (row_len, row_point) = self.check_row_collision(map);
+	fn cast(&self, map: &Map) -> (f32, Vec<f32>, bool) {
+		let (column_len,
+			 column_point,
+			 column_col) = self.check_column_collision(map);
+		let (row_len, row_point, row_col) = self.check_row_collision(map);
 		if column_len < row_len {
-			(column_len, column_point)
+			(column_len, column_point, column_col)
 		} else {
-			(row_len, row_point)
+			(row_len, row_point, row_col)
 		}
 	}
 }
@@ -314,16 +317,31 @@ impl Map {
 	}
 	fn render_3d(&self, ctx: &mut BTerm, ply: &Player) {
 		for i in 0..SCREEN_W {
-			let line_h = Self::map_to_range(ply.dist[i as usize],
-											0.0,
-											DIAGONAL * 0.75,
-											SCREEN_H as f32,
-											0.0);
+			let iu: usize = i as usize;
+			let mut line_h = Self::map_to_range(ply.dist[iu],
+												0.0,
+												DIAGONAL * 0.7,
+												SCREEN_H as f32,
+												0.0);
+			if line_h < 0.0 { line_h = 0.0; }
+			let ang = f32::atan((f32::abs(ply.end[iu][1] - ply.begin[iu][1])) /
+								(f32::abs(ply.end[iu][0] - ply.begin[iu][0])));
+			// println!("cycle {}, line was {} long. multi by cosine ok {}, {}. new: {}", i, line_h, ang*180.0/ std::f32::consts::PI, f32::cos(ang), line_h * f32::cos(ang));
+			// line_h = line_h * f32::cos(ang);
 			let line_offset = (SCREEN_H as f32 - line_h) / 2.0;
-				let line: Bresenham = Bresenham::new(
-					Point {x: i, y: line_offset as i32},
-					Point {x: i, y: SCREEN_H - line_offset as i32});
-			line.for_each(|p: Point| ctx.set(p.x, p.y, GREY, BLACK, '#'));
+			let line: Bresenham = Bresenham::new(
+				Point {x: i, y: line_offset as i32},
+				Point {x: i, y: SCREEN_H - line_offset as i32});
+			let char_grade;
+			if ply.columns[iu] {
+				char_grade = to_cp437('▒');
+			} else {
+				char_grade = to_cp437('▓');
+			}
+			line.for_each(|p: Point| ctx.set(p.x,
+											 p.y,
+											 GREY,BLACK,
+											 char_grade));
 		}
 	}
 }
@@ -342,27 +360,38 @@ impl State {
 			map: map.clone(),
 		}
 	}
+	fn change_mode(&mut self, ctx: &mut BTerm){
+		if let Some(key) = ctx.key {
+			match key {
+				VirtualKeyCode::Tab => {
+					match self.mode {
+						GameMode::TwoD => self.mode = GameMode::ThreeD,
+						GameMode::ThreeD => self.mode = GameMode::TwoD,
+					}
+				},
+				_ => {},
+			}
+		}
+	}
 	fn three_d(&mut self, ctx: &mut BTerm) {
 		ctx.cls();
+		ctx.fill_region(Rect { x1: 0,
+							   y1: 0,
+							   x2: SCREEN_W,
+							   y2: SCREEN_H},
+						to_cp437('░'),
+						GREY,
+						BLACK);
 		self.player.update(ctx, &self.map);
 		self.map.render_3d(ctx, &self.player);
-		ctx.print(1, 1, "Hellow 3D World!");
+		self.change_mode(ctx);
 	}
 	fn two_d(&mut self, ctx: &mut BTerm) {
 		ctx.cls();
 		self.map.render_2d(ctx);
 		self.player.update(ctx, &self.map);
 		self.player.render(ctx);
-		ctx.print(0, 0, "Hellow 2D World!");
-		ctx.print(0, 1, format!("P: {}, {}",
-								self.player.camera[0],
-								self.player.camera[1]));
-		ctx.print(0, 2, format!("D: {}, {}",
-			self.player.camera[0] + self.player.direction[0],
-			self.player.camera[1] + self.player.direction[1]));
-		ctx.print(0, 3, format!("N: {}, {}",
-			self.player.camera[0] + self.player.direction[0] - self.player.plane[0] / 2.0,
-			self.player.camera[1] + self.player.direction[1] - self.player.plane[1] / 2.0));
+		self.change_mode(ctx);
 	}
 }
 
@@ -372,7 +401,8 @@ struct Player {
 	plane: [f32; 2],
 	begin: Vec<Vec<f32>>,
 	end: Vec<Vec<f32>>,
-	dist: Vec<f32>
+	dist: Vec<f32>,
+	columns: Vec<bool>,
 }
 
 impl Player {
@@ -382,10 +412,14 @@ impl Player {
 	fn cast_all(c: [f32; 2],
 				d: [f32; 2],
 				p: [f32; 2],
-				map: &Map) -> (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<f32>) {
+				map: &Map) -> (Vec<Vec<f32>>,
+							   Vec<Vec<f32>>,
+							   Vec<f32>,
+							   Vec<bool>) {
 		let mut b:  Vec<Vec<f32>> = Vec::new();
 		let mut e:  Vec<Vec<f32>> = Vec::new();
 		let mut dt: Vec<f32> = Vec::new();
+		let mut cl: Vec<bool> = Vec::new();
 		let w: f32 = 1.0 / SCREEN_W as f32;
 		for i in 0..SCREEN_W {
 			let lerp_x: f32;
@@ -399,14 +433,15 @@ impl Player {
 								   c[1] + d[1] + lerp_y]).cast(map);
 			e.push(ray.1);
 			dt.push(ray.0);
+			cl.push(ray.2);
 		}
-		(b, e, dt)
+		(b, e, dt, cl)
 	}
 	fn new(map: &Map) -> Self {
 		let c = [10.0, 10.0];
 		let d = [DIR_LENGTH, 0.0];
-		let p = [0.0, f32::tan(0.436332) * DIR_LENGTH];
-		let (b, e, dt) = Self::cast_all(c, d, p, map);
+		let p = [0.0, f32::tan(1.0472) * DIR_LENGTH];
+		let (b, e, dt, cl) = Self::cast_all(c, d, p, map);
 		Self {
 			camera: c,
 			direction: d,
@@ -414,6 +449,7 @@ impl Player {
 			begin: b,
 			end: e,
 			dist: dt,
+			columns: cl,
 		}
 	}
 	fn normalize(v: [f32; 2]) -> [f32; 2] {
@@ -437,8 +473,14 @@ impl Player {
 		if let Some(key) = ctx.key {
 			match key {
 				VirtualKeyCode::Z => {
-					for i in 0..self.dist.len() {
-						println!("{}: {}", i, self.dist[i]);
+					println!("player is at [{}, {}]",
+							 self.camera[0], self.camera[1]);
+					println!("looking at {}",
+							 f32::atan(self.direction[1] /
+									   self.direction[0]) *
+							 180.0 / std::f32::consts::PI);
+				for i in 0..self.dist.len() {
+						// println!("{}: {}", i, self.dist[i]);
 					}
 				},
 				VirtualKeyCode::W => {
@@ -446,7 +488,7 @@ impl Player {
 						self.camera,
 						Self::normalize(self.direction)
 					);
-					(self.begin, self.end, self.dist) =
+					(self.begin, self.end, self.dist, self.columns) =
 						Self::cast_all(self.camera,
 									   self.direction,
 									   self.plane,
@@ -457,7 +499,7 @@ impl Player {
 						self.camera,
 						Self::normalize(self.direction)
 					);
-					(self.begin, self.end, self.dist) =
+					(self.begin, self.end, self.dist, self.columns) =
 						Self::cast_all(self.camera,
 									   self.direction,
 									   self.plane,
@@ -472,7 +514,7 @@ impl Player {
 						self.plane,
 						-ROT_STEP
 					);
-					(self.begin, self.end, self.dist) =
+					(self.begin, self.end, self.dist, self.columns) =
 						Self::cast_all(self.camera,
 									   self.direction,
 									   self.plane,
@@ -487,7 +529,7 @@ impl Player {
 						self.plane,
 						ROT_STEP
 					);
-					(self.begin, self.end, self.dist) =
+					(self.begin, self.end, self.dist, self.columns) =
 						Self::cast_all(self.camera,
 									   self.direction,
 									   self.plane,
